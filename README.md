@@ -7,7 +7,7 @@ Do a `make` in the directory.
 
 ## Usage
 
-As long as the total number of characters you use is less than 256
+As long as the total number of unique characters you use is less than 256
 (any utf8 unicode character counts as one character), you can use the program
 to encode a file.  The fewer unique characters you use, the more the encoded
 file will look like a random binary file.
@@ -26,5 +26,5 @@ via  `apt-get install ent`.)
 ## License
 
 All the files besides `utf8.cc/h` are under the AGPL v3 license (in LICENSE),
-and `utf8.cc/h` are distributed with the license found in their headers.  
-They have been modified a bit from http://www.cprogramming.com/tutorial/unicode.html
+and `utf8.cc/h` are distributed with the license found in their headers.  They
+have been modified a bit from http://www.cprogramming.com/tutorial/unicode.html
