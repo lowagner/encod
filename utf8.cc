@@ -178,8 +178,8 @@ int utf8_offset(char *str, int charnum)
     int offs=0;
 
     while (charnum > 0 && str[offs]) {
-        (void)(IS_UTF(str[++offs]) || IS_UTF(str[++offs]) ||
-               IS_UTF(str[++offs]) || ++offs);
+        (void)(IS_UTF(str[offs++]) || IS_UTF(str[offs++]) ||
+               IS_UTF(str[offs++]) || ++offs);
         charnum--;
     }
     return offs;
@@ -191,8 +191,8 @@ int utf8_character_number(char *s, int offset)
     int charnum = 0, offs=0;
 
     while (offs < offset && s[offs]) {
-        (void)(IS_UTF(s[++offs]) || IS_UTF(s[++offs]) ||
-               IS_UTF(s[++offs]) || ++offs);
+        (void)(IS_UTF(s[offs++]) || IS_UTF(s[offs++]) ||
+               IS_UTF(s[offs++]) || ++offs);
         charnum++;
     }
     return charnum;
@@ -228,14 +228,14 @@ int32_t utf8_next_character(const char *s, int *i)
 
 void utf8_increment(char *s, int *i)
 {
-    (void)(IS_UTF(s[++(*i)]) || IS_UTF(s[++(*i)]) ||
-           IS_UTF(s[++(*i)]) || ++(*i));
+    (void)(IS_UTF(s[(*i)++]) || IS_UTF(s[(*i)++]) ||
+           IS_UTF(s[(*i)++]) || ++(*i));
 }
 
 void utf8_decrement(char *s, int *i)
 {
-    (void)(IS_UTF(s[--(*i)]) || IS_UTF(s[--(*i)]) ||
-           IS_UTF(s[--(*i)]) || --(*i));
+    (void)(IS_UTF(s[(*i)--]) || IS_UTF(s[(*i)--]) ||
+           IS_UTF(s[(*i)--]) || --(*i));
 }
 
 int octal_digit(char c)
