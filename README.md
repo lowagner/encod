@@ -1,6 +1,10 @@
 # encod
 randomize any file (unicode or otherwise) with a byte-sized alphabet
 
+note, however, that this is an old, deprecated version.  you don't 
+have to worry about unicode if you don't want to, instead operating 
+specifically on bytes.  the new master branch will do that.
+
 ## Make the executable
 
 Do a `make` in the directory.
