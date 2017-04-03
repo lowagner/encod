@@ -1,72 +1,83 @@
 #ifndef CODE_H
 #define CODE_H
-#include <map>
 #include <stdint.h>
-#include <stdio.h>
 #include <vector>
+#include <iostream>
+#include <algorithm> // sort
 
-struct EncodeCharacter {
-    int count;
-    std::vector<uint8_t> encoder;
-
-    EncodeCharacter() {
-        count = 0;
-    }
-    EncodeCharacter(int count_) {
-        count = count_;
-    }
-};
-
-struct CountCharacter {
-    int32_t character;
-    int count, bins;
-    
-    CountCharacter(int32_t character_=0, int count_=0, int bins_=0) {
-        character = character_;
-        count = count_;
-        bins = bins_;
-    }
-
-    CountCharacter(const CountCharacter &c) {
-        character = c.character;
-        count = c.count;
-        bins = c.bins;
-    }
-};
-
-bool compare_counts(CountCharacter &e, CountCharacter &f);
+#include <gmpxx.h>
+typedef mpz_class BigInt;
 
 class Code {
-    std::map<int32_t, EncodeCharacter> _map;
-    std::vector<CountCharacter> _counts;
-    int _final_count; // number of all characters, including duplicates
-    int32_t _decoder[256];
-    bool _clear_previous;
-
 public:
-    Code() {
-        _clear_previous = false;
+    Code () {
+        clear();
     }
-    ~Code() {
-        //for (auto iterate : _map) {
-        //    iterate.second.encoder.clear();
-        //}
-        //_map.clear();
-        //_counts.clear();
+    Code (const char* filename) {
+        from(filename);
     }
-    
-    void add(int32_t character);
-    int finalize();
-    int randomize();
-    
-    int size(); // number of characters in the mapping
 
-    uint8_t encode(int32_t character);
-    int32_t decode(uint8_t character);
-    
-    void print(FILE *stream = stdout);
+    void from(const char* filename) {
+        // read in decoder from filename
+        FILE *f = fopen(filename, "r");
+        if (!f)
+            throw std::invalid_argument("not a valid filename for an decoder file");
+        size_t result = fread(_decoder, 1, 256, f);
+        fclose(f);
+        if (result != 256) {
+            throw std::invalid_argument("invalid decoder file, not large enough.");
+        }
+        make_encoding();
+    }
+
+    void add(char character) {
+        ++_counts[(uint8_t)character];
+    }
+
+    char encode(char character) {
+        std::vector<char> &possible_encodings = _encoders[(uint8_t)character]; 
+        if (!possible_encodings.size())
+            throw std::out_of_range("invalid character, not in encoding");
+
+        return possible_encodings[rand()%possible_encodings.size()];
+    }
+    char decode(char character) {
+        return (char)_decoder[(uint8_t)character];
+    }
+   
+    friend std::ostream &operator << (std::ostream &os, const Code &c) {
+        // this output may be invalid utf8
+        for (int i=0; i<256; ++i)
+            os << (char)c._decoder[i];
+        return os;
+    }
+
+    void encode(const char *filename);
+    void decode(const char *filename);
+
+    void clear() {
+        for (int i=0; i<256; ++i)
+            _counts[i] = 0;
+        for (int i=0; i<256; ++i)
+            _sorted_chars[i] = i;
+    }
+    void finalize();
+
+protected:
+    uint8_t _decoder[256];
+    uint8_t _sorted_chars[256];
+    std::vector<char> _encoders[256];
+    int _bins[256]; // number of spots allocated to each character
+    BigInt _counts[256];
+
+    void make_encoding();
+    void randomize_decoder() {
+        std::random_shuffle(_decoder, _decoder+256);
+    }
+    bool compare_counts(uint8_t &a, uint8_t &b) {
+        return (_counts[a] > _counts[b]);
+    }
 };
 
 
 #endif
-

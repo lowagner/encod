@@ -1,142 +1,197 @@
 #include "code.h"
-#include "utf8.h"
-#include <algorithm> // sort
 
-bool compare_counts(CountCharacter &a, CountCharacter &b) {
-    return (a.count < b.count);
-}
-
-int Code::randomize() {
-    if (_clear_previous)
-    for (auto iterate : _map) {
-        iterate.second.encoder.clear();
-    }
-    std::random_shuffle(_decoder, _decoder+256);
+void Code::finalize() {
+    BigInt final_count = 0; // number of all characters, including duplicates
+    int unique = 0;
     for (int i=0; i<256; ++i) {
-        int32_t c = _decoder[i];
-        try {
-            EncodeCharacter &ec = _map.at(c);
-            ec.encoder.push_back((uint8_t)i);
-        } catch (const std::out_of_range &ob) {
-            fprintf(stderr, "expecting %d but didn't find it in map\n", c); 
-            return 1;
-        }
+        if (!_counts[i])
+            continue;
+        ++unique;
+        final_count += _counts[i];
     }
-    _clear_previous = true;
-    return 0;
-}
 
-int Code::finalize() {
-    if (_map.size() > 256) {
-        fprintf(stderr, "cannot write a byte-sized alphabet for this set of characters\n");
-        return 1;
+    for (int i=1; i<256; ++i) {
+        for (int j=i-1; j>=0; --j)
+            if (_counts[_sorted_chars[j+1]] > _counts[_sorted_chars[j]])
+                std::swap(_sorted_chars[j], _sorted_chars[j+1]);
     }
-    _final_count = 0;
-    if (_clear_previous) {
-        _counts.clear();
+
+    if (unique == 256) {
+        for (int i=0; i<256; ++i)
+            _decoder[i] = i;
+        randomize_decoder();
+        make_encoding();
+        return;
     }
-    for (auto iterate : _map) {
-        // first -> int32_t, second -> CountEncoder
-        _counts.emplace_back(iterate.first, iterate.second.count);
-        _final_count += iterate.second.count;
-    }
-    std::sort(_counts.begin(), _counts.end(), compare_counts);
-    if (_counts.size() == 256) {
-        for (int i=0; i<256; ++i) {
-            _decoder[i] = _counts[i].character;
-        }
-        return randomize();
-    }
+
     int sum_to_256 = 0; 
-    int i_max = _counts.size()-1;
-    int i=i_max;
-    for (; i>=0; --i) {
-        _counts[i].bins = 256 * _counts[i].count / _final_count;
-        if (_counts[i].bins <= 1) {
+    int i=0;
+    for (; i<256; ++i) {
+        uint8_t c = _sorted_chars[i];
+        BigInt bin = _counts[c]*256 / final_count;
+        _bins[c] = bin.get_ui();
+        if (_bins[c] <= 1)
             break;
-        }
-        sum_to_256 += _counts[i].bins;
+        sum_to_256 += _bins[c];
     }
-    int i_min = i+1;
-    for (; i>=0; --i) {
-        _counts[i].bins = 1;
+
+    int i_max = i; // everything at this point and beyond can't be modified by the later algorithm
+    for (; i<256; ++i) {
+        uint8_t c = _sorted_chars[i];
+        if (!_counts[c])
+            break;
+        _bins[c] = 1;
         ++sum_to_256;
     }
+
     int diff = sum_to_256 - 256;
     while (diff)
     if (diff < 0) {
         // easy case -- finish it immediately!
-        _counts[i_max].bins -= diff;
+        _bins[_sorted_chars[0]] -= diff;
         diff = 0;
         break;
     } else {
         int original_diff = diff;
-        for (int i=i_max; i>=i_min; --i) {
-            int subtract = original_diff * _counts[i].count / _final_count;
+        for (int i=0; i<i_max; ++i) {
+            uint8_t c = _sorted_chars[i];
+            int subtract;
+            {
+                BigInt _subtract =_counts[c] * original_diff / final_count;
+                subtract = _subtract.get_ui();
+            }
             if (subtract == 0) {
                 subtract = 1;
             }
-            if (_counts[i].bins - subtract < 1) {
-                i_min = i+1;
+            if (_counts[c] - subtract < 1) {
+                --i_max;
                 break;
             } else {
-                _counts[i].bins -= subtract;
+                _bins[_sorted_chars[i]] -= subtract;
                 diff -= subtract;
             }
         }
         if (diff > 0) {
             // push it in the right direction if nothing else
-            --_counts[i_max].bins;
+            --_bins[_sorted_chars[0]];
             --diff;
         }
     }
-    int cumulative = -1;
-    int count = 0;
-    int count_max = _counts.size();
-    for (i=0; i<256; ++i) {
-        _decoder[i] = _counts[count].character;
-        if (count < count_max - 1 && i >= cumulative + _counts[count].bins)
-            cumulative += _counts[count++].bins;
+
+    int count = _bins[_sorted_chars[0]];
+    int index = 0;
+    for (i=0; i<255; ++i) {
+        _decoder[i] = _sorted_chars[index];
+        if (--count <= 0)
+            count = _bins[_sorted_chars[++index]];
     }
-    return randomize();
+    _decoder[i] = _sorted_chars[index];
+
+    randomize_decoder();
+    make_encoding();
 }
 
-void Code::print(FILE *stream) {
-    if (_map.size() > 256) {
-        fprintf(stderr, "cannot write byte-sized alphabet for code\n");
-        return;
+void Code::encode(const char *filename) {
+    FILE *file = fopen(filename, "r");
+    if (!file)
+        throw std::invalid_argument("invalid file to encode");
+    clear();
+    size_t read_bytes;
+    char line[BUFSIZ]; 
+    while (1) {
+        read_bytes = fread(line, 1, sizeof(line), file);
+        for (int i=0; i<read_bytes; ++i)
+            add(line[i]);
+        if (read_bytes < sizeof(line))
+            break;
     }
-    for (int i=0; i<256; ++i) {
-        char w[4];
-        int nc = utf8_from_int(w, _decoder[i]);
-        if (nc == 0) {
-            fprintf(stderr, "had errors writing code header!\n");
-            return;
+    finalize();
+    
+    char filename_output[BUFSIZ];
+    // write decoder file:
+    snprintf(filename_output, sizeof(filename_output), "%s-decoder", filename);
+    FILE *save = fopen(filename_output, "w");
+    if (!save) {
+        fclose(file);
+        throw std::invalid_argument("couldn't open decoder file for output");
+    }
+    size_t write_bytes = fwrite(_decoder, 1, 256, save);
+    fclose(save);
+    if (write_bytes != 256) {
+        fclose(file);
+        throw std::invalid_argument("couldn't write decoder file for output");
+    }
+
+    // write encoded file:
+    snprintf(filename_output, sizeof(filename_output), "%s-encoded", filename);
+    save = fopen(filename_output, "w");
+    if (!save) { 
+        fclose(file);
+        throw std::invalid_argument("couldn't open encoded file for output");
+    }
+
+    // go back to start of file:
+    fseek(file, 0, SEEK_SET); 
+    
+    while (1) {
+        // read file into line buffer:
+        read_bytes = fread(line, 1, sizeof(line), file);
+        if (!read_bytes)
+            break;
+        for (int i=0; i<read_bytes; ++i)
+            line[i] = encode(line[i]);
+        write_bytes = fwrite(line, 1, read_bytes, save);
+        if (write_bytes != read_bytes) {
+            fclose(save);
+            fclose(file);
+            throw std::out_of_range("write error");
         }
-        for (int j=0; j<nc; ++j) {
-            fputc(w[j], stream);
+        if (read_bytes < sizeof(line))
+            break;
+    }
+    fclose(save);
+    fclose(file);
+}
+
+void Code::decode(const char *filename) {
+    FILE *file = fopen(filename, "r");
+    if (!file)
+        throw std::invalid_argument("expecting encoded file");
+   
+    // setup a file to save decoded message to:
+    char filename_output[BUFSIZ];
+    snprintf(filename_output, sizeof(filename_output), "%s-decoded", filename);
+    FILE *save = fopen(filename_output, "w");
+    if (!save) { 
+        fclose(file);
+        throw std::invalid_argument("couldn't open file to write decoded message");
+    }
+    
+    char line[BUFSIZ];
+    while (1) {
+        // read file into line buffer:
+        size_t read_bytes = fread(line, 1, sizeof(line), file);
+        if (!read_bytes)
+            break;
+        for (int i=0; i<read_bytes; ++i)
+            line[i] = decode(line[i]);
+        size_t write_bytes = fwrite(line, 1, read_bytes, save);
+        if (write_bytes != read_bytes) {
+            fclose(save);
+            fclose(file);
+            throw std::out_of_range("write error");
         }
+        if (read_bytes < sizeof(line))
+            break;
     }
+    fclose(save);
+    fclose(file);
 }
 
-void Code::add(int32_t character) {
-    try {
-        ++_map.at(character).count;
-    } catch (const std::out_of_range &ob) {
-        _map[character] = EncodeCharacter(1);
-    }
-}
-
-uint8_t Code::encode(int32_t character) {
-    // this will fail if character is not in the set:
-    EncodeCharacter &ec = _map.at(character);
-    return ec.encoder[rand()%ec.encoder.size()];
-}
-
-int32_t Code::decode(uint8_t character) {
-    return _decoder[character];
-}
-
-int Code::size() {
-    return _map.size();
+void Code::make_encoding() {
+    for (int i=0; i<256; ++i)
+        _encoders[i].clear();
+    
+    for (int i=0; i<256; ++i)
+        _encoders[_decoder[i]].push_back(i);
 }
